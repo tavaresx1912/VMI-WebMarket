@@ -6,6 +6,10 @@ from sqlalchemy.pool import StaticPool
 from app.main import app
 from app.database import Base, get_db
 from app.models.user import User
+from app.models.fornecedor import Fornecedor
+from app.models.produto import Produto
+from app.models.produto_fornecedor import ProdutoFornecedor
+from app.models.estoque import Estoque
 from app.core.security import hash_password
 
 # Banco em memória para testes — StaticPool garante que todas as sessões compartilham
@@ -74,3 +78,115 @@ def auth_headers(client, admin_user):
     resp = client.post("/auth/login", json={"email": "admin@test.com", "senha": "admin123"})
     token = resp.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+# ---------------------------------------------------------------------------
+# Fixtures do domínio de inventário
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def usuario_user(db):
+    """Cria um usuário com role='usuario'."""
+    user = User(
+        nome="Usuario Teste",
+        email="usuario@test.com",
+        senha_hash=hash_password("usuario123"),
+        role="usuario",
+        ativo=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture
+def usuario_headers(client, usuario_user):
+    """Headers JWT do usuário comum."""
+    resp = client.post("/auth/login", json={"email": "usuario@test.com", "senha": "usuario123"})
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def fornecedor_user(db):
+    """Cria um usuário com role='fornecedor'."""
+    user = User(
+        nome="Fornecedor Teste",
+        email="fornecedor@test.com",
+        senha_hash=hash_password("forn123"),
+        role="fornecedor",
+        ativo=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture
+def fornecedor_headers(client, fornecedor_user, fornecedor_entity):
+    """Headers JWT do fornecedor."""
+    resp = client.post("/auth/login", json={"email": "fornecedor@test.com", "senha": "forn123"})
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def fornecedor_entity(db, fornecedor_user):
+    """Cria o registro Fornecedor vinculado ao usuário fornecedor."""
+    fornecedor = Fornecedor(
+        user_id=fornecedor_user.id,
+        nome="Fornecedor Ltda",
+        cnpj="12.345.678/0001-99",
+    )
+    db.add(fornecedor)
+    db.commit()
+    db.refresh(fornecedor)
+    return fornecedor
+
+
+@pytest.fixture
+def produto(db):
+    """Cria um Produto de teste."""
+    p = Produto(nome="Caneta Azul", descricao="Caneta esferográfica azul", categoria="Papelaria")
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return p
+
+
+@pytest.fixture
+def contrato(db, produto, fornecedor_entity):
+    """
+    Cria um contrato ProdutoFornecedor preferencial entre o produto e o fornecedor.
+    Usado para testes de pedido automático (RN-07).
+    """
+    pf = ProdutoFornecedor(
+        produto_id=produto.id,
+        fornecedor_id=fornecedor_entity.id,
+        preferencial=True,
+        preco_contratado=4.50,
+        prazo_entrega_dias=3,
+        qtd_minima_pedido=10,
+    )
+    db.add(pf)
+    db.commit()
+    db.refresh(pf)
+    return pf
+
+
+@pytest.fixture
+def estoque(db, produto, usuario_user):
+    """Cria uma entrada de estoque com semáforo em verde (quantidade acima de ponto_amarelo)."""
+    e = Estoque(
+        produto_id=produto.id,
+        usuario_id=usuario_user.id,
+        quantidade=50,
+        ponto_reposicao=10,
+        ponto_amarelo=20,
+    )
+    db.add(e)
+    db.commit()
+    db.refresh(e)
+    return e
