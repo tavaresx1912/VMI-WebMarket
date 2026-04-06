@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
+from app.algorithms.search import contains_text, filter_by_predicate
 from app.repositories import user_repository
 from app.models.user import User
 from app.core.security import hash_password
@@ -29,9 +30,19 @@ def create_user(db: Session, nome: str, email: str, senha: str, role: str) -> Us
     return user_repository.create(db, user)
 
 
-def list_users(db: Session) -> list[User]:
-    """Retorna todos os usuários cadastrados. Visível apenas para o admin."""
-    return user_repository.get_all(db)
+def list_users(db: Session, search_term: str | None = None) -> list[User]:
+    """
+    Retorna todos os usuários cadastrados.
+    Quando search_term é informado, aplica busca linear manual por nome ou email.
+    """
+    users = user_repository.get_all(db)
+    if search_term is None or search_term.strip() == "":
+        return users
+
+    return filter_by_predicate(
+        users,
+        lambda user: contains_text(user.nome, search_term) or contains_text(user.email, search_term)
+    )
 
 
 def deactivate_user(db: Session, user_id: int) -> User:

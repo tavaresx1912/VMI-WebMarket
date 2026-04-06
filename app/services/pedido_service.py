@@ -1,16 +1,13 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from app.models.fornecedor import Fornecedor
+from app.algorithms.search import contains_int
+from app.algorithms.sort import insertion_sort_by_datetime_desc
 from app.models.produto_fornecedor import ProdutoFornecedor
-from app.repositories import estoque_repository, pedido_compra_repository, item_pedido_repository
-from app.schemas.item_pedido import ItemPedidoCreate, ItemPedidoResponse
-from app.schemas.pedido_compra import PedidoCompraCreate, PedidoCompraSummary, PedidoCompraResponse
-from app.services.estoque_service import calcular_status_kanban, _get_fornecedor_ou_404
+from app.repositories import estoque_repository, item_pedido_repository, pedido_compra_repository
+from app.schemas.item_pedido import ItemPedidoResponse
+from app.schemas.pedido_compra import PedidoCompraCreate, PedidoCompraResponse, PedidoCompraSummary
+from app.services.estoque_service import _get_fornecedor_ou_404, calcular_status_kanban
 
-
-# ---------------------------------------------------------------------------
-# Helpers internos
-# ---------------------------------------------------------------------------
 
 def _get_contrato_ou_404(db: Session, produto_fornecedor_id: int) -> ProdutoFornecedor:
     """Retorna o contrato (ProdutoFornecedor) pelo ID, ou 404 se não existir."""
@@ -38,13 +35,13 @@ def _to_response(db: Session, pedido) -> PedidoCompraResponse:
     itens_orm = item_pedido_repository.list_by_pedido(db, pedido.id)
     itens = [
         ItemPedidoResponse(
-            id=i.id,
-            pedido_id=i.pedido_id,
-            produto_fornecedor_id=i.produto_fornecedor_id,
-            quantidade=i.quantidade,
-            preco_unitario=i.preco_unitario,
+            id=item.id,
+            pedido_id=item.pedido_id,
+            produto_fornecedor_id=item.produto_fornecedor_id,
+            quantidade=item.quantidade,
+            preco_unitario=item.preco_unitario,
         )
-        for i in itens_orm
+        for item in itens_orm
     ]
     return PedidoCompraResponse(
         id=pedido.id,
@@ -55,10 +52,6 @@ def _to_response(db: Session, pedido) -> PedidoCompraResponse:
         itens=itens,
     )
 
-
-# ---------------------------------------------------------------------------
-# Operações do Usuário
-# ---------------------------------------------------------------------------
 
 def criar_pedido_manual(
     db: Session, usuario_id: int, data: PedidoCompraCreate
@@ -94,12 +87,6 @@ def criar_pedido_automatico(
     """
     Cria automaticamente um pedido de reposição quando o estoque está em Amarelo ou
     Vermelho (RN-07).
-
-    Fluxo:
-    1. Valida que o estoque pertence ao usuário.
-    2. Verifica que o status Kanban é Amarelo ou Vermelho.
-    3. Usa o fornecedor marcado como preferencial no contrato.
-    4. Cria o pedido com origem="automatico" e quantidade = qtd_minima_pedido do contrato.
     """
     estoque = estoque_repository.get_by_id(db, estoque_id)
     if estoque is None:
@@ -113,10 +100,9 @@ def criar_pedido_automatico(
     if kanban == "verde":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Estoque saudável — pedido automático não é necessário"
+            detail="Estoque saudável - pedido automático não é necessário"
         )
 
-    # Busca o fornecedor preferencial para este produto (RN-07)
     contrato = (
         db.query(ProdutoFornecedor)
         .filter(
@@ -146,7 +132,8 @@ def criar_pedido_automatico(
 def listar_pedidos_usuario(db: Session, usuario_id: int) -> list[PedidoCompraSummary]:
     """Lista todos os pedidos do usuário do mais recente ao mais antigo."""
     pedidos = pedido_compra_repository.list_by_usuario(db, usuario_id)
-    return [_to_summary(p) for p in pedidos]
+    pedidos = insertion_sort_by_datetime_desc(pedidos, "criado_em")
+    return [_to_summary(pedido) for pedido in pedidos]
 
 
 def detalhar_pedido(
@@ -161,10 +148,6 @@ def detalhar_pedido(
     return _to_response(db, pedido)
 
 
-# ---------------------------------------------------------------------------
-# Operações do Fornecedor
-# ---------------------------------------------------------------------------
-
 def listar_pedidos_fornecedor(
     db: Session, fornecedor_user_id: int
 ) -> list[PedidoCompraSummary]:
@@ -175,7 +158,8 @@ def listar_pedidos_fornecedor(
     fornecedor = _get_fornecedor_ou_404(db, fornecedor_user_id)
     pedido_ids = item_pedido_repository.list_pedido_ids_por_fornecedor(db, fornecedor.id)
     pedidos = pedido_compra_repository.list_by_pedido_ids(db, pedido_ids)
-    return [_to_summary(p) for p in pedidos]
+    pedidos = insertion_sort_by_datetime_desc(pedidos, "criado_em")
+    return [_to_summary(pedido) for pedido in pedidos]
 
 
 def atualizar_status_pedido(
@@ -194,7 +178,7 @@ def atualizar_status_pedido(
     pedido = pedido_compra_repository.get_by_id(db, pedido_id)
     if pedido is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado")
-    if pedido.id not in pedido_ids:
+    if not contains_int(pedido_ids, pedido.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Este pedido não contém itens do seu catálogo"
@@ -202,3 +186,10 @@ def atualizar_status_pedido(
 
     pedido = pedido_compra_repository.update_status(db, pedido, novo_status)
     return _to_summary(pedido)
+
+
+def listar_todos_pedidos(db: Session) -> list[PedidoCompraSummary]:
+    """Lista todos os pedidos do sistema para visualização do admin."""
+    pedidos = pedido_compra_repository.list_all(db)
+    pedidos = insertion_sort_by_datetime_desc(pedidos, "criado_em")
+    return [_to_summary(pedido) for pedido in pedidos]

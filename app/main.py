@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.database import Base, engine
 
-# Importa todos os modelos para que o SQLAlchemy registre as tabelas no metadata
 import app.models.user  # noqa: F401
 import app.models.fornecedor  # noqa: F401
 import app.models.produto  # noqa: F401
@@ -11,7 +10,7 @@ import app.models.estoque  # noqa: F401
 import app.models.pedido_compra  # noqa: F401
 import app.models.item_pedido  # noqa: F401
 
-from app.routes import auth, admin, usuario, fornecedor
+from app.routes import admin, auth, fornecedor_estoque, usuario
 
 
 @asynccontextmanager
@@ -28,8 +27,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Registra os roteadores com seus prefixos
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(usuario.router)
-app.include_router(fornecedor.router)
+app.include_router(fornecedor_estoque.router)
