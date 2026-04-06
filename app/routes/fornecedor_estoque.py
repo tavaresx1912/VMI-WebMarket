@@ -1,8 +1,8 @@
 """
-Rotas do Fornecedor — APENAS domínio de inventário/pedidos (Pessoa 3).
+Rotas do Fornecedor para estoque e pedidos (Pessoa 3).
 
-Atenção: este arquivo também conterá endpoints de produto/contrato (Pessoa 2)
-quando essa parte for implementada. Não misture as responsabilidades.
+Este arquivo foi separado para evitar misturar o domínio de inventário/pedidos
+com futuros endpoints de catálogo e contratos do fornecedor.
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -17,10 +17,6 @@ from app.services import estoque_service, pedido_service
 router = APIRouter(prefix="/fornecedor", tags=["Fornecedor"])
 
 
-# ---------------------------------------------------------------------------
-# Estoque — VMI (RN-03)
-# ---------------------------------------------------------------------------
-
 @router.get("/estoque", response_model=List[EstoqueResponse])
 def listar_estoque(
     db: Session = Depends(get_db),
@@ -28,7 +24,7 @@ def listar_estoque(
 ) -> List[EstoqueResponse]:
     """
     Lista o estoque de todos os produtos do fornecedor para todos os clientes vinculados.
-    Permite ao fornecedor monitorar os níveis de reposição (VMI — RN-03, RN-04).
+    Permite ao fornecedor monitorar os níveis de reposição (VMI - RN-03, RN-04).
     """
     return estoque_service.listar_estoque_fornecedor(db, current_user.id)
 
@@ -41,15 +37,11 @@ def atualizar_quantidade(
     current_user: User = Depends(require_role("fornecedor")),
 ) -> EstoqueResponse:
     """
-    Atualiza a quantidade disponível em estoque para um cliente (VMI — RN-03).
+    Atualiza a quantidade disponível em estoque para um cliente (VMI - RN-03).
     O semáforo Kanban é recalculado automaticamente após a atualização.
     """
     return estoque_service.atualizar_quantidade(db, current_user.id, estoque_id, data)
 
-
-# ---------------------------------------------------------------------------
-# Pedidos (RN-05)
-# ---------------------------------------------------------------------------
 
 @router.get("/pedidos", response_model=List[PedidoCompraSummary])
 def listar_pedidos(
